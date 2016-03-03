@@ -1,0 +1,463 @@
+---
+title: "CPU Performance Analysis"
+author: "Suraj Vidyadaran"
+output: html_document
+---
+###Data Description
+
+Abstract: Relative CPU Performance Data, described in terms of its cycle time, memory size, etc
+
+Data Set Information:
+
+The estimated relative performance values were estimated by the authors using a linear regression method. See their article (pp 308-313) for more details on how the relative performance values were set.
+
+Attribute Information:
+
+1. vendor name: 30 
+(adviser, amdahl,apollo, basf, bti, burroughs, c.r.d, cambex, cdc, dec, 
+dg, formation, four-phase, gould, honeywell, hp, ibm, ipl, magnuson, 
+microdata, nas, ncr, nixdorf, perkin-elmer, prime, siemens, sperry, 
+sratus, wang) 
+2. Model Name: many unique symbols 
+3. MYCT: machine cycle time in nanoseconds (integer) 
+4. MMIN: minimum main memory in kilobytes (integer) 
+5. MMAX: maximum main memory in kilobytes (integer) 
+6. CACH: cache memory in kilobytes (integer) 
+7. CHMIN: minimum channels in units (integer) 
+8. CHMAX: maximum channels in units (integer) 
+9. PRP: published relative performance (integer) 
+10. ERP: estimated relative performance from the original article (integer)
+
+###Load the data
+```{r}
+machine <- read.csv("F:/Analysis_Practice/Regression/cpu-performance/machine.data.txt", header=FALSE)
+colnames(machine)<-c("vendor_name","model_name","myct","mmin","mmax","cach","chmin","chmax","prp","erp")
+head(machine)
+```
+
+###Exploratory Analysis and cleaning
+```{r}
+str(machine)
+summary(machine)
+which(is.na(machine))
+```
+
+```{r,warning=FALSE}
+library(ggplot2)
+
+
+#Top 10 High performance machine
+top_10<-machine[,c(1,2,9)]
+top_10$Computer<-paste(top_10$vendor_name,top_10$model_name,sep=":")
+top_10<-top_10[order(-top_10$prp),]
+top_10_performance<-top_10[1:10,]
+ggplot(top_10_performance,aes(x=reorder(Computer,prp),y=prp))+geom_bar(stat="identity",color="red")+coord_flip()+geom_text(aes(label=prp),size=5)+ylab("Published relative performance of machine")+xlab("Machine Name")+ggtitle("Top 10 High performance machines")
+
+#Top 20 High performance Machine
+top_20_performance<-top_10_performance<-top_10[1:20,]
+ggplot(top_20_performance,aes(x=reorder(Computer,prp),y=prp))+geom_bar(stat="identity",color="red")+coord_flip()+geom_text(aes(label=prp),size=5)+ylab("Published relative performance of machine")+xlab("Machine Name")+ggtitle("Top 20 High performance machines")
+```
+
+
+###Correlation Analysis
+```{r,warning=FALSE,message=FALSE}
+library(PerformanceAnalytics)
+corr<-machine[,3:9]
+chart.Correlation(corr,histogram = TRUE,pch=19)
+```
+
+##Regression Analysis
+
+###A)Linear Regression
+
+####1)Ordinary Least Squares Regression
+```{r}
+#Create Model
+model1<-lm(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine)
+
+#Summary of the model
+summary(model1)
+
+#Make Predictions
+machine$pred_prp_lm<-predict(model1,newdata = machine)
+
+#Root Mean Squared Error
+rmse <- function(y, f) { sqrt(mean( (y-f)^2 )) }
+rmse(machine$prp,machine$pred_prp_lm)
+
+#Plot the prediction
+
+ ggplot(machine,aes(x=pred_prp_lm,y=prp))+geom_point(alpha=0.5,color="black",aes(x=pred_prp_lm))+geom_smooth(aes(x=pred_prp_lm,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Linear regression Analysis of Computer Performance")
+
+
+````
+
+####2)Stepwise Linear Regression
+```{r}
+#Create Model
+model2<-lm(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine)
+#Summary of the model
+summary(model2)
+#Perform step wise feature selection
+fit<-step(model2)
+#Summarize the selected model
+summary(fit)
+
+#Make Predictions
+machine$pred_prp_step_lm<-predict(fit,newdata = machine)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_step_lm)
+
+
+
+
+```
+
+####3)Principal Component Regression
+```{r,message=FALSE,warning=FALSE}
+library(pls)
+
+#Create Model
+model3<-pcr(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine,validation="CV")
+
+#Summary of the model
+summary(model3)
+
+#Make Predictions
+machine$pred_prp_pcr<-predict(model3,newdata = machine,ncomp=6)
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_pcr)
+
+
+```
+
+####4)Partial Least Squares Regression
+```{r}
+#Create Model
+model4<-plsr(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine,validation="CV")
+
+#Summary of the model
+summary(model4)
+
+#Make Predictions
+machine$pred_prp_plsr<-predict(model4,newdata = machine,ncomp=6)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_plsr)
+
+
+```
+
+###B)Penalized Linear regression
+
+####1)Ridge Regression
+
+```{r,message=FALSE,warning=FALSE}
+library(glmnet)
+
+x<-as.matrix(machine[,3:8])
+y<-as.matrix(machine[,9])
+
+#Create Model
+model5<-glmnet(x,y,family = "gaussian",alpha=0,lambda=0.001)
+
+#Summary of the model
+summary(model5)
+
+#Make Predictions
+machine$pred_prp_ridge_reg<-predict(model5,x,type="link")
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_ridge_reg)
+
+```
+
+####2)Least Absolute Shrinkage and Selection Operator(LASSO)regression
+
+```{r,message=FALSE,warning=FALSE}
+library(lars)
+
+x<-as.matrix(machine[,3:8])
+y<-as.matrix(machine[,9])
+
+#Create Model
+model6<-lars(x,y,type = "lasso")
+
+#Summary of the model
+summary(model6)
+
+#Select a step with minimum error
+
+best_step<-model6$df[which.min(model6$RSS)]
+
+#Make Predictions
+machine$pred_prp_lasso<-predict(model6,x,s=best_step,type="fit")$fit
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_lasso)
+```
+
+####3)Elastic Net
+```{r}
+#Create Model
+model7<-glmnet(x,y,family = "gaussian",alpha=0.5,lambda=0.001)
+
+#Summary of the model
+summary(model7)
+
+#Make Predictions
+
+machine$pred_prp_elastic_net<-predict(model7,x,type="link")
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_elastic_net)
+```
+
+###C)Non-Linear Regression
+
+####1)Multivariate Adaptive Regression Splines(MARS)
+```{r,message=FALSE,warning=FALSE}
+library(earth)
+
+#Create Model
+model8<-earth(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine)
+
+#Summary of the model
+summary(model8)
+
+#Summarize the importance of the input variables
+evimp(model8)
+
+#Make Predictions
+machine$pred_prp_mars<-predict(model8,newdata = machine)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_mars)
+
+
+```
+
+####2)Support Vector Machine
+```{r,warning=FALSE,message=FALSE}
+
+library(kernlab)
+
+#Create Model
+model9<-ksvm(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine)
+
+#Summary of the model
+summary(model9)
+
+#Make Predictions
+machine$pred_prp_svm<-predict(model9,newdata = machine)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_svm)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_svm,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_svm,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Support Vector Machine regression Analysis of Computer Performance")
+```
+
+####3)k-Nearest Neighbor
+```{r,message=FALSE,warning=FALSE}
+library(caret)
+
+#Create Model
+model10<-knnreg(x,y,k=3)
+
+#Summary of the model
+summary(model10)
+
+#Make Predictions
+machine$pred_prp_knn<-predict(model10,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_knn)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_knn,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_knn,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Knn regression Analysis of Computer Performance")
+
+```
+
+####4)Neural Network
+```{r,message=FALSE,warning=FALSE}
+library(nnet)
+
+#Create Model
+model11<-nnet(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine,size=12,maxit=500,linout = T,decay = 0.01)
+
+#Summary of the model
+summary(model11)
+
+#Make Predictions
+x<-machine[,3:8]
+y<-machine[,7]
+
+machine$pred_prp_nnet<-predict(model11,x,type="raw")
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_nnet)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_nnet,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_nnet,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Neural Network regression Analysis of Computer Performance")
+
+```
+
+###D)Decision Trees for Regression
+####1)Classification and Regression Trees (CART)
+```{r,warning=FALSE,message=FALSE}
+library(rpart)
+
+#Create Model
+model12<-rpart(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine,control = rpart.control(minsplit = 5))
+
+#Summary of the model
+summary(model12)
+#Make Predictions
+machine$pred_prp_cart<-predict(model12,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_cart)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_cart,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_cart,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("CART Decision Tree regression Analysis of Computer Performance")
+```
+
+####2)Conditional Decision Trees
+```{r,message=FALSE,warning=FALSE}
+library(party)
+
+#Create Model
+model13<-ctree(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine,controls = ctree_control(minsplit = 2,minbucket = 2,testtype = "Univariate"))
+
+#Summary of the model
+summary(model13)
+#Make Predictions
+machine$pred_prp_cdt<-predict(model13,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_cdt)
+
+
+```
+
+####3)Model Trees
+```{r,message=FALSE,warning=FALSE}
+library(RWeka)
+
+#Create Model
+model14<-M5P(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine)
+
+#Summary of the model
+summary(model14)
+
+#Make Predictions
+machine$pred_prp_mt<-predict(model14,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_mt)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_mt,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_mt,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Model tree Decision Tree regression Analysis of Computer Performance")
+```
+
+####4)Rule System
+
+```{r}
+#Create Model
+model15<-M5Rules(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine)
+
+#Summary of the model
+summary(model15)
+
+#Make Predictions
+machine$pred_prp_rs<-predict(model15,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_rs)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_rs,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_rs,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Rule System  Decision Tree regression Analysis of Computer Performance")
+```
+
+####5)Bagging CART
+
+```{r,message=FALSE,warning=FALSE}
+library(ipred)
+
+#Create Model
+model16<-bagging(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine,control=rpart.control(minsplit=5))
+
+#Summary of the model
+summary(model16)
+
+#Make Predictions
+machine$pred_prp_bagging<-predict(model16,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_bagging)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_bagging,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_bagging,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Bagging CART Decision Tree regression Analysis of Computer Performance")
+```
+
+####6)Random Forest
+```{r,message=FALSE,warning=FALSE}
+library(randomForest)
+
+#Create Model
+model17<-randomForest(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine)
+
+#Summary of the model
+summary(model17)
+
+#Make Predictions
+machine$pred_prp_random_forest<-predict(model17,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_random_forest)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_random_forest,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_random_forest,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Random Forest Decision Tree regression Analysis of Computer Performance")
+```
+
+####7)Gradient Boosted Machine
+```{r,message=FALSE,warning=FALSE}
+library(gbm)
+
+#Create Model
+model18<-gbm(prp~myct+mmin+mmax+cach+chmin+chmax,data = machine,distribution = "gaussian",n.minobsinnode = 1)
+
+#Summary of the model
+summary(model18)
+
+#Make Predictions
+machine$pred_prp_gbm<-predict(model18,x,n.trees=1)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_gbm)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_gbm,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_gbm,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Gradient Boosted Machine Decision Tree regression Analysis of Computer Performance")
+```
+
+####8)Cubist
+```{r,message=FALSE,warning=FALSE}
+library(Cubist)
+
+#Create Model
+model19<-cubist(x,y)
+
+#Summary of the model
+summary(model19)
+
+#Make Predictions
+machine$pred_prp_cubist<-predict(model19,x)
+
+#Root Mean Squared Error
+rmse(machine$prp,machine$pred_prp_cubist)
+
+#Plot the prediction
+ ggplot(machine,aes(x=pred_prp_cubist,y=prp))+geom_point(alpha=0.5,color="black")+geom_smooth(aes(x=pred_prp_cubist,y=prp),color="brown")+geom_line(aes(x=prp,y=prp),color="blue",linetype=2)+xlab("Predicted Performance")+ylab("Published performance")+ggtitle("Cubist Decision Tree regression Analysis of Computer Performance")
+```
